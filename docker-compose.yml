@@ -1,0 +1,67 @@
+version: '3'
+
+services:
+  node:
+    build:
+      context: .
+      dockerfile: ./docker/node/Dockerfile
+    ports:
+      - "3001:3000"
+    depends_on:
+      - unleash_proxy
+    volumes:
+      - .:/app
+      - /app/node_modules
+      
+  unleash_proxy:
+    image: unleashorg/unleash-proxy:v0.10.4
+    ports:
+      - "3000:3000"
+    environment:
+      UNLEASH_PROXY_CLIENT_KEYS: "proxy-client-key"
+      UNLEASH_URL: "http://unleash_dashboard:4242/api"
+      UNLEASH_API_TOKEN: "default:development.unleash-insecure-api-token"
+    depends_on:
+      - unleash_dashboard
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:3000/proxy/health || exit 1
+      interval: 1s
+      timeout: 1m
+      retries: 5
+      
+  unleash_dashboard:
+    build: ./docker/unleash/.
+    ports:
+      - "4242:4242"
+    environment:
+      DATABASE_URL: "postgres://postgres:unleash@unleash_db/postgres"
+      DATABASE_SSL: "false"
+      INIT_CLIENT_API_TOKENS: "default:development.unleash-insecure-api-token"
+    depends_on:
+      - unleash_db
+    command: ["./wait-for", "unleash_db:5432", "--", "node", "index.js"]
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:4242/health || exit 1
+      interval: 1s
+      timeout: 1m
+      retries: 5
+      start_period: 15s
+
+  unleash_db:
+    expose:
+      - "5432"
+    image: postgres:14
+    environment:
+      POSTGRES_DB: "unleash_db"
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username=postgres", "--host=127.0.0.1", "--port=5432"]
+      interval: 2s
+      timeout: 1m
+      retries: 5
+      start_period: 30s
+    volumes:
+      - unleash_db_data:/var/lib/postgresql/data
+  
+volumes:
+  unleash_db_data:
